@@ -69,10 +69,13 @@ def run_simple_server(address, fn, force_auth=True):
             print("Stopping server...")
 
 @contextmanager
-def start_server(address):
+def start_server(address, allow_other=True):
     """
     Opens up a unix domain socket at the specified address
     and listens for connections.
+
+    allow_other: Allow other users on the system to connect
+    to the unix domain socket
     """
     if os.path.exists(address):
         print(f"{address} exists -- server already running")
@@ -83,6 +86,11 @@ def start_server(address):
     sock.settimeout(TIMEOUT)
     sock.bind(address)
     sock.listen()
+
+    if allow_other:
+        # 33279 = '-rwxrwxrwx.'
+        os.chmod("game.sock", 33279)
+        os.chmod("challenges", 33279)
 
     try:
         yield sock
@@ -106,10 +114,12 @@ def client_connection(sock):
         connection.close()
 
 def generate_challenge(user):
+    SERVER_FOLDER = Path(__file__).parent.absolute()
+    Path(f"{SERVER_FOLDER}/challenges").mkdir(mode=33279, exist_ok=True)
     return ChallengeMessage(
         username=user,
         token=generate_token(TOKEN_LENGTH),
-        location=f"/home/{user}/.pubnix_challenge"
+        location=f"{SERVER_FOLDER}/challenges/.{user}_challenge"
     )
 
 def authenticate(connection):
@@ -126,7 +136,7 @@ def authenticate(connection):
 
     # Check that challenge file exists
     if not os.path.exists(challenge.location):
-        close_with_error(connection, "Challange file doesn't exist")
+        close_with_error(connection, f"Authentication Error: Challange file doesn't exist at {challenge.location}")
     
     # Check if user owns the file
     if find_owner(challenge.location) != user: 
@@ -175,9 +185,10 @@ def run_simple_client(address, fn, force_auth=True):
     """
     with start_client(address) as client:
         if force_auth:
-            user = login(client)
-        send_message(client, StartMessage())
-        fn(client, user)
+            user, success = login(client)
+        if not force_auth or success:
+            send_message(client, StartMessage())
+            fn(client, user)
 
 @contextmanager
 def start_client(address):
@@ -213,12 +224,16 @@ def login(connection):
     send_message(connection, ValidationMessage())
 
     # On success, delete challenge file
+    success = True
     try:
         message = receive_message(connection, AuthSuccessMessage)
+    except ProtocolException as e:
+        print(e)
+        success = False
     finally:
         os.unlink(challenge.location)
     
-    return user
+    return user, success
 
 ##
 # Messages
@@ -244,7 +259,11 @@ def receive_message(connection, cls=None):
         try:
             message = cls(**message)
         except (TypeError, AssertionError):
-            close_with_error(connection, "Expected message of type")
+            if "type" in message and message['type'] == "error":
+                raise ProtocolException(message.get("message"))
+            else:
+                print("Received:", message, flush=True)
+                close_with_error(connection, f"Expected message of type {cls}")
 
     return message
 

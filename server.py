@@ -41,11 +41,12 @@ class WordGuessServer:
         """
         # 33152 = '-rw-------.'
         # 33188 = '-rw-r--r--.'
+        SERVER_FOLDER = Path(__file__).parent.absolute()
         os.chmod(__file__, 33152)
-        os.chmod("pubnix.py", 33188)
-        os.chmod("wordguess.py", 33188)
-        os.chmod("words.txt", 33188)
-        os.chmod("client.py", 33188)
+        os.chmod(f"{SERVER_FOLDER}/pubnix.py", 33188)
+        os.chmod(f"{SERVER_FOLDER}/wordguess.py", 33188)
+        os.chmod(f"{SERVER_FOLDER}/words.txt", 33188)
+        os.chmod(f"{SERVER_FOLDER}/client.py", 33188)
         Path(WordGuess.RESULTS_LOCATION).touch(33188)
         Path(SAVE_LOCATION).touch(33152)
 
@@ -219,13 +220,13 @@ def make_default_dict_false():
 def make_default_dict_set():
     return defaultdict(set)
 
-SAVE_LOCATION = "state.pickle"
+SERVER_FOLDER = Path(__file__).parent.absolute()
+SAVE_LOCATION = f"{SERVER_FOLDER}/state.pickle"
 
 if __name__ == "__main__":
     # NOTE: The seed must be kept secret otherwise
     # players can cheat!
     SEED = random.randint(3, 1000000)
-    print("Seed: ", SEED)
 
     w = WordGuessServer(SEED)
 
@@ -235,6 +236,8 @@ if __name__ == "__main__":
             w = pickle.load(file)
             print("Successfully loaded game state")
 
+    print("Seed: ", w.seed)
+    
     # Make sure permissions are correct
     # to prevent cheating...
     w.fix_permissions()
