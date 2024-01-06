@@ -38,3 +38,20 @@ figure out the word for all future days.
 
 You can reset the seed and all game state by removing the file `state.pickle`.
 
+## Players
+
+Players can play the game by running the `client.py` python script.
+If the game lives under `/home/wg/WordGuess` then the command will be
+
+```bash
+python /home/wg/WordGuess/client.py
+```
+
+After playing the game, the server will record the users high score.
+They can see the leaderboard by running
+
+```bash
+python /home/wg/WordGuess/leaderboard.py
+```
+
+You can also pass a date with `--date`.
