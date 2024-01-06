@@ -1,57 +1,94 @@
 """
+Pubnix Server/Client Library
 Author: Brandon Rozek
+
+The pubnix library contains server
+and client code needed to communicate
+over unix domain sockets on a single
+machine.
+
+For authentication, we rely on challenge
+tokens and the unix permission system as
+both server and client run on the same 
+machine.
+
+Remaining TODO ...
 
 TODO: Handle a user trying to connect multiple
 times at the same time. 
 
 This might be handled automatically if only one
 user can play at a time...
-"""
 
-import json
-import pwd
-import os
-import sys
-import socket
-import binascii
-from pathlib import Path
-from typing import Union
+TODO: Handle timeout properly
+"""
 from contextlib import contextmanager
 from dataclasses import dataclass
-
-# __all__ = ['send_message', 'MESSAGE_BUFFER_LEN', 'ChallengeMessage']
+from pathlib import Path
+from typing import Union
+import binascii
+import json
+import os
+import pwd
+import sys
+import socket
 
 MESSAGE_BUFFER_LEN = 1024
 TOKEN_LENGTH = 50
 TIMEOUT = 5 * 60 # 5 minutes
 
+###
+# Server
+###
 
+def run_simple_server(address, fn, force_auth=True):
+    """
+    This function can act as the main entrypoint
+    for the server. It takes a function that interacts
+    with a connected user (potentially authenticated)
+
+    Example
+    =======
+    if __name__ == "__main__":
+      run_simple_server(
+        "/home/project/.pubnix.sock",
+        lambda connection, user: connection.sendall(f"Hello {user}".encode())
+      )
+    """
+    with start_server(address) as sock:
+        print("Started server at", address)
+        try:
+            while True:
+                with client_connection(sock) as connection:
+                    user = None
+                    if force_auth:
+                        user = authenticate(connection)
+                    receive_message(connection, StartMessage)
+                    fn(connection, user)
+        except KeyboardInterrupt:
+            print("Stopping server...")
 
 @contextmanager
-def start_client(address):
-    # Create the Unix socket client
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-
-    # Connect to the server
-    try:
-        client.connect(address)
-    except FileNotFoundError:
-        print("Game server is not running at location", address)
+def start_server(address):
+    """
+    Opens up a unix domain socket at the specified address
+    and listens for connections.
+    """
+    if os.path.exists(address):
+        print(f"{address} exists -- server already running")
         sys.exit(1)
+    
+    # Create a unix domain socket
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(TIMEOUT)
+    sock.bind(address)
+    sock.listen()
 
     try:
-        yield client
+        yield sock
     finally:
-        client.close()
-
-
-
-def run_simple_client(address, fn, force_auth=True):
-    with start_client(address) as client:
-        if force_auth:
-            user = login(client)
-        send_message(client, StartMessage())
-        fn(client, user)
+        # Delete game.sock when finished
+        os.unlink(address)
 
 @contextmanager
 def client_connection(sock):
@@ -67,29 +104,6 @@ def client_connection(sock):
         pass
     finally: # clean up the connection
         connection.close()
-
-
-def run_simple_server(address, fn, force_auth=True):
-    with start_server(address) as sock:
-        print("Started server at", address)
-        try:
-            while True:
-                with client_connection(sock) as connection:
-                    user = None
-                    if force_auth:
-                        user = authenticate(connection)
-                    receive_message(connection, StartMessage)
-                    fn(connection, user)
-        except KeyboardInterrupt:
-            print("Stopping server...")
-
-
-def generate_token(length):
-    # From https://stackoverflow.com/a/41354711
-    return binascii.hexlify(os.urandom(length // 2)).decode()
-
-def find_owner(path: Union[str, Path]) -> str:
-    return Path(path).owner()
 
 def generate_challenge(user):
     return ChallengeMessage(
@@ -132,7 +146,55 @@ def authenticate(connection):
     send_message(connection, AuthSuccessMessage())
     return user
 
-MESSAGE_BUFFER_LEN = 1024
+def generate_token(length):
+    # From https://stackoverflow.com/a/41354711
+    return binascii.hexlify(os.urandom(length // 2)).decode()
+
+def find_owner(path: Union[str, Path]) -> str:
+    return Path(path).owner()
+
+###
+# Client
+###
+
+def run_simple_client(address, fn, force_auth=True):
+    """
+    This function can act as the main entrypoint
+    for the client. It takes a function that interacts
+    with the server. If force_auth is enabled, then it
+    first authenticates as the effect user running the
+    program.
+
+    Example
+    =======
+    if __name__ == "__main__":
+      run_simple_client(
+        "/home/project/.pubnix.sock",
+        lambda connection, user: connection.sendall(f"Hello server, I'm {user}".encode())
+      )
+    """
+    with start_client(address) as client:
+        if force_auth:
+            user = login(client)
+        send_message(client, StartMessage())
+        fn(client, user)
+
+@contextmanager
+def start_client(address):
+    # Create the Unix socket client
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
+    # Connect to the server
+    try:
+        client.connect(address)
+    except FileNotFoundError:
+        print("Server is not running at location", address)
+        sys.exit(1)
+
+    try:
+        yield client
+    finally:
+        client.close()
 
 def login(connection):
     # Send authentication message
@@ -150,14 +212,17 @@ def login(connection):
     # Tell server to check the challenge file
     send_message(connection, ValidationMessage())
 
+    # On success, delete challenge file
     try:
         message = receive_message(connection, AuthSuccessMessage)
     finally:
-        # Delete challenge file
         os.unlink(challenge.location)
     
     return user
 
+##
+# Messages
+##
 
 class MessageEncoder(json.JSONEncoder):
     def default(self, o):
@@ -183,25 +248,6 @@ def receive_message(connection, cls=None):
 
     return message
 
-@contextmanager
-def start_server(address):
-    if os.path.exists(address):
-        print("game.sock exists -- game server already running")
-        sys.exit(1)
-    
-    # Create a unix domain socket
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(TIMEOUT)
-    sock.bind(address)
-    sock.listen()
-
-    try:
-        yield sock
-    finally:
-        # Delete game.sock when finished
-        os.unlink(address)
-
-
 class ProtocolException(Exception):
     pass
 
@@ -209,7 +255,6 @@ def close_with_error(connection, content: str):
     message = dict(type="error", message=content)
     connection.sendall(json.dumps(message).encode())
     raise ProtocolException()
-
 
 @dataclass
 class ChallengeMessage:
@@ -241,7 +286,6 @@ class AuthSuccessMessage:
     type: str = "authentication_success"
     def __post_init__(self):
         assert self.type == "authentication_success"
-
 
 @dataclass
 class StartMessage:

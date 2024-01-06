@@ -1,19 +1,21 @@
 """
+WordGuess Leaderboard Viewer
 Author: Brandon Rozek
-
-View leaderboard information for a particular date
-
-# TODO: argparse
 """
+from datetime import datetime
+import argparse
+import sqlite3
 
 from wordguess import WordGuess
-import sqlite3
-from datetime import datetime
-
-
-DATE = str(datetime.today().date())
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Leaderboard for WordGuess Game")
+    parser.add_argument("--date", type=str, help="Filter scores by date listed in YYYY-MM-DD format.")
+    args = vars(parser.parse_args())
+
+    # If not specified, then use today's date
+    DATE = args.get("date", str(datetime.today().date()))
+
     con = sqlite3.connect(WordGuess.RESULTS_LOCATION)
     try:
         cur = con.cursor()

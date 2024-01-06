@@ -1,4 +1,5 @@
 """
+WordGuess Library
 Author: Brandon Rozek
 
 Contains common data structures
