@@ -6,10 +6,13 @@ Contains common data structures
 between WordGuess client and server
 """
 from dataclasses import dataclass
+from pathlib import Path
+
+SERVER_FOLDER = Path(__file__).parent.absolute()
 
 class WordGuess:
-    RESULTS_LOCATION = "/home/rozek/repo/wordGuess/results.db"
-    ADDRESS = "/home/rozek/wordGuess/game.sock"
+    RESULTS_LOCATION = f"{SERVER_FOLDER}/results.db"
+    ADDRESS = f"{SERVER_FOLDER}/game.sock"
 
     @dataclass
     class GuessMessage:
