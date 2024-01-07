@@ -30,6 +30,8 @@ MESSAGE_BUFFER_LEN = 1024
 TOKEN_LENGTH = 50
 TIMEOUT = 5 * 60 # 5 minutes
 
+SERVER_FOLDER = Path(__file__).parent.absolute()
+
 ###
 # Server
 ###
@@ -98,8 +100,9 @@ def start_server(address, allow_other=True):
 
     if allow_other:
         # 33279 = '-rwxrwxrwx.'
-        os.chmod("game.sock", 33279)
-        os.chmod("challenges", 33279)
+        os.chmod(f"{SERVER_FOLDER}/game.sock", 33279)
+        if os.path.exists(f"{SERVER_FOLDER}/challenges"):
+            os.chmod(f"{SERVER_FOLDER}/challenges", 33279)
 
     try:
         yield sock
@@ -108,7 +111,6 @@ def start_server(address, allow_other=True):
         os.unlink(address)
 
 def generate_challenge(user):
-    SERVER_FOLDER = Path(__file__).parent.absolute()
     Path(f"{SERVER_FOLDER}/challenges").mkdir(mode=33279, exist_ok=True)
     return ChallengeMessage(
         username=user,
