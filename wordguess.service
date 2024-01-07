@@ -1,0 +1,12 @@
+[Unit]
+Description=WordGuess server
+Requires=
+After=
+
+[Service]
+Type=simple
+WorkingDirectory=%h/WordGuess/
+ExecStart=/usr/bin/python server.py
+
+[Install]
+WantedBy=multi-user.target
