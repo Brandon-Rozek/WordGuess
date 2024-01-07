@@ -11,20 +11,11 @@ For authentication, we rely on challenge
 tokens and the unix permission system as
 both server and client run on the same 
 machine.
-
-Remaining TODO ...
-
-TODO: Handle a user trying to connect multiple
-times at the same time. 
-
-This might be handled automatically if only one
-user can play at a time...
-
-TODO: Handle timeout properly
 """
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Thread
 from typing import Union
 import binascii
 import json
@@ -32,6 +23,8 @@ import os
 import pwd
 import sys
 import socket
+
+__all__ = ['run_simple_server', 'run_simple_client']
 
 MESSAGE_BUFFER_LEN = 1024
 TOKEN_LENGTH = 50
@@ -59,14 +52,31 @@ def run_simple_server(address, fn, force_auth=True):
         print("Started server at", address)
         try:
             while True:
-                with client_connection(sock) as connection:
-                    user = None
-                    if force_auth:
-                        user = authenticate(connection)
-                    receive_message(connection, StartMessage)
-                    fn(connection, user)
+                connection, _ = sock.accept()
+                connection.settimeout(TIMEOUT)
+                t = Thread(target=thread_connection, args=[connection, force_auth, fn])
+                t.daemon = True # TODO: Implement graceful cleanup instead
+                t.start()
         except KeyboardInterrupt:
             print("Stopping server...")
+
+def thread_connection(connection, force_auth, fn):
+    try:
+        user = None
+        if force_auth:
+            user = authenticate(connection)
+        receive_message(connection, StartMessage)
+        fn(connection, user)
+    except (
+        ProtocolException,
+        BrokenPipeError,
+        TimeoutError,
+        ConnectionResetError) as e:
+        # Ignore as client can reconnect
+        pass
+    finally: # clean up the connection
+        if connection is not None:
+            connection.close()
 
 @contextmanager
 def start_server(address, allow_other=True):
@@ -83,7 +93,6 @@ def start_server(address, allow_other=True):
     
     # Create a unix domain socket
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.settimeout(TIMEOUT)
     sock.bind(address)
     sock.listen()
 
@@ -97,21 +106,6 @@ def start_server(address, allow_other=True):
     finally:
         # Delete game.sock when finished
         os.unlink(address)
-
-@contextmanager
-def client_connection(sock):
-    connection, _ = sock.accept()
-    try:
-        yield connection
-    except (
-        ProtocolException,
-        BrokenPipeError,
-        TimeoutError,
-        ConnectionResetError) as e:
-        # Ignore as client can reconnect
-        pass
-    finally: # clean up the connection
-        connection.close()
 
 def generate_challenge(user):
     SERVER_FOLDER = Path(__file__).parent.absolute()
@@ -249,10 +243,13 @@ def send_message(connection, message):
 
 def receive_message(connection, cls=None):
     message = connection.recv(MESSAGE_BUFFER_LEN).decode()
+
+    if len(message) == 0:
+        raise ProtocolException("Sender closed the connection")
+
     try:
         message = json.loads(message)
     except Exception:
-        print("Received:", message, flush=True)
         close_with_error(connection, "Invalid Message Received")
 
     if cls is not None:
@@ -262,7 +259,6 @@ def receive_message(connection, cls=None):
             if "type" in message and message['type'] == "error":
                 raise ProtocolException(message.get("message"))
             else:
-                print("Received:", message, flush=True)
                 close_with_error(connection, f"Expected message of type {cls}")
 
     return message
