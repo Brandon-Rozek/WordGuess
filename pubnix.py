@@ -13,7 +13,7 @@ both server and client run on the same
 machine.
 """
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from threading import Thread
 from typing import Union
@@ -235,12 +235,12 @@ def login(connection):
 # Messages
 ##
 
-class MessageEncoder(json.JSONEncoder):
+class DataclassEncoder(json.JSONEncoder):
     def default(self, o):
-        return o.__dict__ 
+        return asdict(o)
 
 def send_message(connection, message):
-    contents = json.dumps(message, cls=MessageEncoder).encode()
+    contents = json.dumps(message, cls=DataclassEncoder).encode()
     connection.sendall(contents)
 
 def receive_message(connection, cls=None):
